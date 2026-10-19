@@ -13,6 +13,7 @@
   "whisper_model": "small",
   "whisper_device": "auto",
   "whisper_compute_type": "auto",
+  "whisper_gpu": 0,
 
   "input_device": null,
   "sample_rate": 16000,

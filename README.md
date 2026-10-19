@@ -86,6 +86,24 @@ otomatik PATH'e ekler (`_prepare_cuda_dlls`) — ayrıca ayar gerekmez.
 GPU bulunamazsa veya kütüphane eksikse Jarvis sessizce CPU/int8'e düşer; hiçbir şey bozulmaz.
 `whisper_device` varsayılanı `auto`: önce CUDA, olmazsa CPU.
 
+### Çift GPU (2× RTX 3060 12 GB)
+
+İki kart **NVLink olmadan** bellek havuzu oluşturmaz; LM Studio modelin katmanlarını iki karta
+böler → toplam **24 GB VRAM**. Yani kazanç “compute” değil **kapasite**: 27B Q4 modeli 12 GB'a
+sığmadığı için CPU'ya taşarken, 24 GB'da tamamen GPU'da kalır (yaklaşık 2-3× hız).
+Whisper zaten tek GPU kullanır ve 0.17 s'dir; çift kart orada hız kazandırmaz ama artık
+`--whisper-model large-v3` gibi daha doğru bir modeli VRAM'den çalmadan çalıştırabilirsin.
+
+```bat
+nvidia-smi -L                       :: iki karti dogrula
+python jarvis.py --check            :: "CUDA aygitlari" bolumunde GPU 0 / GPU 1 ve Whisper'in karti
+python jarvis.py --whisper-gpu 1    :: Whisper 2. karta (LM Studio 1. karti kullanir)
+```
+
+Kalıcı olsun istersen `config.json`: `"whisper_gpu": 1`. Kurulum notları: 750 W PSU, iki ayrı
+8-pin kablo, BIOS'ta *Above 4G Decoding* + *Resizable BAR*; ikinci yuva genelde x4'tür (LLM
+çıkarımı için sorun değil, yalnızca model yüklemesi biraz yavaşlar).
+
 ---
 
 ## 3. LM Studio ayarı
@@ -135,6 +153,7 @@ Sesli modda: konuşun, sustuğunuzda (~0.9 sn) kayıt biter, metne çevrilir, ya
 | `--model "Qwen2.5-7B-Instruct"` | LM Studio model kimliği (`--list-models` adayları gösterir) |
 | `--whisper-model base\|small\|medium\|large-v3` | Hız/doğruluk dengesi (`small` dengeli) |
 | `--whisper-device cuda --whisper-compute-type float16` | GPU'da STT |
+| `--whisper-gpu 1` | Çoklu GPU: Whisper'ın hangi kartta çalışacağı (varsayılan `0`) |
 | `--tts pyttsx3` | Tamamen çevrimdışı seslendirme |
 | `--no-tts` | Sessiz (sadece yazı) |
 | `--voice tr-TR-EmelNeural` | Türkçe kadın ses (**varsayılan**). `tr-TR-AhmetNeural` şu an Microsoft tarafında ses üretmiyor |
@@ -196,7 +215,7 @@ python -m unittest -v test_jarvis.py
 ```
 
 Kapsam: metin temizleme/cümleleme, ayar önceliği, TTS kuyruğu ve stop/resume, asistan akışı ve
-hata durumunda geçmişin bozulmaması, 44.1/48 kHz → 16 kHz dönüşümü. **23 test.**
+hata durumunda geçmişin bozulmaması, 44.1/48 kHz → 16 kHz dönüşümü. **41 test.**
 
 Uçtan uca test sırası:
 
@@ -240,6 +259,7 @@ Hepsini tek tıkla çalıştırıp `kurulum_sonuc.log` üretmek için: `kur_ve_t
 | `Jarvis:` boş kalıyor / yanıt gelmiyor | Model yalnızca `reasoning` üretmiş olabilir: `--list-models` ile düşünmeyen bir instruct model seçin, ya da `--think --max-tokens 2048` deneyin |
 | Ses çıkmıyor (`pygame` yok) | `pip install pygame` ya da ffmpeg kurup `ffplay`'i PATH'e ekleyin |
 | Whisper yavaş | `--whisper-model base` (veya `tiny`), `--whisper-device cuda --whisper-compute-type float16` |
+| Çift GPU'da Jarvis ile LM Studio VRAM için yarışıyor | `--whisper-gpu 1` verin (Whisper 2. karta geçer) veya LM Studio'da offload'u azaltın |
 | İlk çalıştırma çok yavaş | Whisper modeli indiriliyor; sonrasında önbellekten yüklenir |
 | Türkçe karakterler bozuk | `chcp 65001` (batch dosyaları yapıyor) veya Windows Terminal kullanın |
 | `faster-whisper` kurulmuyor | Python 3.13 desteklenmiyor olabilir → 3.11/3.12 kullanın |

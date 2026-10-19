@@ -235,6 +235,62 @@ def _prepare_cuda_dlls() -> List[str]:
     return added
 
 
+def parse_nvidia_smi(text: str) -> List[Tuple[int, str, int]]:
+    """`nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader` ciktisini ayristirir.
+
+    Ornek satir: ``0, NVIDIA GeForce RTX 3060, 12288`` → (0, 'NVIDIA GeForce RTX 3060', 12288)
+    """
+    devices: List[Tuple[int, str, int]] = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("index"):
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            index = int(parts[0])
+            memory = int(float(parts[-1].replace(" MiB", "").replace("MiB", "").strip()))
+        except (TypeError, ValueError):
+            continue
+        name = ",".join(parts[1:-1]).strip() or "?"
+        devices.append((index, name, memory))
+    return devices
+
+
+def list_cuda_devices() -> List[Tuple[int, str, int]]:
+    """Sistemdeki NVIDIA GPU'lari (indeks, ad, VRAM MiB) olarak dondurur."""
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return []
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        completed = subprocess.run(
+            [executable, "--query-gpu=index,name,memory.total", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=creationflags,
+        )
+    except Exception as exc:
+        LOG.debug("nvidia-smi calistirilamadi: %s", exc)
+        return []
+    if completed.returncode != 0:
+        LOG.debug("nvidia-smi hatasi: %s", (completed.stderr or "").strip()[:200])
+        return []
+    return parse_nvidia_smi(completed.stdout)
+
+
+def count_cuda_devices() -> int:
+    """CTranslate2'nin gordugu CUDA aygit sayisi."""
+    try:
+        import ctranslate2  # type: ignore
+
+        return int(ctranslate2.get_cuda_device_count())
+    except Exception:
+        return 0
+
+
 # ---------------------------------------------------------------------------
 # Ayarlar
 # ---------------------------------------------------------------------------
@@ -255,6 +311,7 @@ class Settings:
     whisper_model: str = "small"
     whisper_device: str = "auto"
     whisper_compute_type: str = "auto"
+    whisper_gpu: int = 0                # coklu GPU: Whisper hangi kartta calissin (0,1,...)
     # Mikrofon / VAD
     input_device: Optional[int] = None
     sample_rate: int = 16000
@@ -290,6 +347,7 @@ class Settings:
         self.whisper_model = (self.whisper_model or "small").strip()
         self.whisper_device = (self.whisper_device or "auto").strip().lower()
         self.whisper_compute_type = (self.whisper_compute_type or "auto").strip().lower()
+        self.whisper_gpu = max(0, _as_int(self.whisper_gpu, 0))
         self.sample_rate = max(8000, _as_int(self.sample_rate, WHISPER_RATE))
         self.frame_ms = max(10, _as_int(self.frame_ms, 30))
         self.silence_ms = max(200, _as_int(self.silence_ms, 900))
@@ -329,6 +387,7 @@ ENV_MAP = {
     "JARVIS_SYSTEM_PROMPT": "system_prompt",
     "JARVIS_LANGUAGE": "language",
     "JARVIS_WHISPER_MODEL": "whisper_model",
+    "JARVIS_WHISPER_GPU": "whisper_gpu",
     "JARVIS_TTS_ENGINE": "tts_engine",
     "JARVIS_VOICE": "voice",
     "JARVIS_WAKE_WORD": "wake_word",
@@ -364,6 +423,7 @@ def load_settings(args: argparse.Namespace) -> Settings:
         "whisper_model": getattr(args, "whisper_model", None),
         "whisper_device": getattr(args, "whisper_device", None),
         "whisper_compute_type": getattr(args, "whisper_compute_type", None),
+        "whisper_gpu": getattr(args, "whisper_gpu", None),
         "input_device": getattr(args, "device", None),
         "silence_ms": getattr(args, "silence_ms", None),
         "max_seconds": getattr(args, "max_seconds", None),
@@ -717,15 +777,51 @@ class Transcriber:
         self.settings = settings
         self._model = None
         self._device = ""
+        self._device_index = 0
         self._lock = threading.Lock()
+
+    @property
+    def device_label(self) -> str:
+        """Ornek: 'cuda:1', 'cpu'."""
+        if (self._device or "").startswith("cuda"):
+            return "{}:{}".format(self._device, self._device_index)
+        return self._device or "?"
+
+    def _resolve_gpu_index(self) -> int:
+        """Ayarlanan GPU indeksini dogrular; kart yoksa GPU 0'a duser."""
+        index = int(self.settings.whisper_gpu or 0)
+        if index <= 0:
+            return 0
+        count = count_cuda_devices()
+        if count == 0 or index >= count:
+            LOG.warning(
+                "whisper_gpu=%d ayarli ama sistemde %d CUDA aygiti gorunuyor; GPU 0 kullanilacak.",
+                index,
+                count,
+            )
+            return 0
+        return index
 
     def _build(self, device: str, compute: str) -> None:
         from faster_whisper import WhisperModel
 
         _prepare_cuda_dlls()  # cuBLAS/cuDNN (varsa) gorunur olsun
-        LOG.info("Whisper '%s' yukleniyor (%s / %s) ...", self.settings.whisper_model, device, compute)
-        self._model = WhisperModel(self.settings.whisper_model, device=device, compute_type=compute)
+        device_index = self._resolve_gpu_index() if device.startswith("cuda") else 0
+        LOG.info(
+            "Whisper '%s' yukleniyor (%s:%d / %s) ...",
+            self.settings.whisper_model,
+            device,
+            device_index,
+            compute,
+        )
+        self._model = WhisperModel(
+            self.settings.whisper_model,
+            device=device,
+            device_index=device_index,
+            compute_type=compute,
+        )
         self._device = device
+        self._device_index = device_index
 
     def _self_test(self) -> None:
         """1 sn sessizlikle gercek bir cikarim yapar.
@@ -788,7 +884,7 @@ class Transcriber:
                             str(exc).splitlines()[0][:160],
                         )
                     continue
-                LOG.info("Whisper hazir (%s / %s).", dev, comp)
+                LOG.info("Whisper hazir (%s / %s).", self.device_label, comp)
                 return
 
             raise JarvisError(
@@ -835,7 +931,7 @@ class Transcriber:
                 # Ornegin VRAM yetmedi ya da cuBLAS/cuDNN kutuphanesi eksik
                 LOG.warning(
                     "%s ile yaziya cevirme basarisiz (%s); CPU'ya geciliyor.",
-                    self._device.upper(),
+                    self.device_label.upper(),
                     str(exc).splitlines()[0][:160],
                 )
                 with self._lock:
@@ -2299,6 +2395,21 @@ def run_check(settings: Settings, tts_test: bool = False, stt_test: bool = False
     except Exception:
         _report(False, "pyttsx3 (opsiyonel)", "pip install pyttsx3")
 
+    gpus = list_cuda_devices()
+    cuda_count = count_cuda_devices()
+    print()
+    if gpus:
+        _report(True, "CUDA aygitlari", "{} GPU".format(len(gpus)))
+        for index, name, memory in gpus:
+            marker = "  <-- Whisper" if index == settings.whisper_gpu else ""
+            print("        GPU {}: {} ({} MiB){}".format(index, name, memory, marker))
+        if settings.whisper_gpu >= len(gpus):
+            print("        Uyari: whisper_gpu={} gecersiz, GPU 0 kullanilacak.".format(settings.whisper_gpu))
+    elif cuda_count:
+        _report(True, "CUDA aygitlari", "{} GPU (nvidia-smi yok)".format(cuda_count))
+    else:
+        print("  [BILGI] CUDA aygiti yok; Whisper CPU/int8 ile calisacak.")
+
     print()
     if sd is None:
         print(c("Mikrofon: sounddevice yok, atlandi.", "93"))
@@ -2355,7 +2466,7 @@ def run_check(settings: Settings, tts_test: bool = False, stt_test: bool = False
             started = time.perf_counter()
             transcriber.load()
             elapsed = time.perf_counter() - started
-            _report(True, "STT modeli", "{:.1f} sn | aygit: {}".format(elapsed, transcriber._device))
+            _report(True, "STT modeli", "{:.1f} sn | aygit: {}".format(elapsed, transcriber.device_label))
         except JarvisError as exc:
             lines = str(exc).splitlines()
             _report(False, "STT modeli", lines[0] if lines else "")
@@ -2398,6 +2509,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--whisper-model", default=None, help="tiny/base/small/medium/large-v3 (varsayilan: small)")
     parser.add_argument("--whisper-device", default=None, choices=["auto", "cpu", "cuda"])
     parser.add_argument("--whisper-compute-type", default=None, help="int8 / float16 / int8_float16")
+    parser.add_argument("--whisper-gpu", type=int, default=None,
+                        help="Coklu GPU: Whisper'in kullanacagi kart indeksi (varsayilan 0)")
 
     parser.add_argument("--device", type=int, default=None, help="Mikrofon cihaz indeksi (--list-devices)")
     parser.add_argument("--silence-ms", type=int, default=None, help="Sessizlik esigi ms (varsayilan 900)")

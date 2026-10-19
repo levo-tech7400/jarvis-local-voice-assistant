@@ -2,7 +2,7 @@
 
 > **Bu dosya, projeye sonradan gelen bir geliştirici/ajan içindir.**
 > Kodun tamamı `jarvis.py` (tek dosya, katmanlı, ~2016 satır) içindedir.
-> Aşağıdaki bilgiler **bu makinede çalıştırılarak doğrulanmıştır** (son doğrulama: tüm testler 36/36 OK).
+> Aşağıdaki bilgiler **bu makinede çalıştırılarak doğrulanmıştır** (son doğrulama: tüm testler 41/41 OK).
 
 Son güncelleme: 2026-10-20 — makine: Windows, Python 3.12.6, RTX 3060 (12 GB, compute 8.6)
 
@@ -146,6 +146,7 @@ python jarvis.py --list-voices       :: edge-tts Türkçe sesleri
 | `whisper_model` | `small` | `tiny/base/small/medium/large-v3` |
 | `whisper_device` | `auto` | `cuda` → `cpu` düşüşü |
 | `whisper_compute_type` | `auto` | CUDA'da `float16`, CPU'da `int8` |
+| `whisper_gpu` | `0` | Çoklu GPU: Whisper'ın kullanacağı kart (`device_index`). Geçersiz indeks → GPU 0 + uyarı |
 | `input_device` | `None` | `--device N` |
 | `sample_rate` | `16000` | Desteklenmezse 48k/44.1k'ya düşer |
 | `frame_ms` | `30` | VAD pencere boyu |
@@ -322,7 +323,7 @@ VRAM'e sığar, ~60-80 karakter/s), `--whisper-model medium` (GPU'da ~0.4 s).
 ```
 C:\Jarvis\
 ├── jarvis.py                  Ana uygulama (2016 satır, 75 KB) — TÜM mantık burada
-├── test_jarvis.py             Birim testleri (36 test, mikrofon/LLM/ağ gerekmez)
+├── test_jarvis.py             Birim testleri (41 test, mikrofon/LLM/ağ gerekmez)
 ├── config.json                Bu makineye özel ayarlar (model, whisper_device=auto, ses)
 ├── config.example.json        Dokümante örnek ayar (yorum alanı `_aciklama` filtrelenir)
 ├── requirements.txt           Çekirdek bağımlılıklar (av pinli)
@@ -341,14 +342,15 @@ C:\Jarvis\
 
 1. Opsiyonel importlar (`numpy`, `sounddevice`, `requests` → yoksa `None`)
 2. `setup_console()`, `c()`, `_as_float/_as_int/_as_bool`
-3. `_prepare_cuda_dlls()` — **CUDA DLL PATH enjeksiyonu**
+3. `_prepare_cuda_dlls()` — **CUDA DLL PATH enjeksiyonu**; `parse_nvidia_smi()` /
+   `list_cuda_devices()` / `count_cuda_devices()`
 4. `to_whisper_pcm()` — int16/float → 16 kHz float32 (48k kutu filtre, 44.1k lineer enterpolasyon)
 5. `Settings` + `load_settings()` + env/CLI eşlemesi
 6. Hatalar: `JarvisError` / `LLMError` / `TTSError`
 7. Metin yardımcıları: `strip_for_speech`, `split_into_chunks`, `_pop_sentences`,
    `normalize_for_match`, `is_exit_command`, `EXIT_WORDS`
 8. `MicrophoneRecorder` (+ `list_audio_devices`)
-9. `Transcriber` (`_build`, `_self_test`, `_transcribe_once`, `transcribe`)
+9. `Transcriber` (`_build`, `_resolve_gpu_index`, `_self_test`, `_transcribe_once`, `transcribe`)
 10. Hava durumu: `WMO_DESCRIPTIONS`, `WeatherReport`, `WeatherService`, `weather_tool_schema()`,
     `is_weather_question()`
 11. `LLMEvent` + `LMStudioClient` (`list_models`, `chat_models`, `_preferred`, `resolve_model`,
@@ -384,7 +386,7 @@ C:\Jarvis\
 ## 12. Test ve doğrulama
 
 ```bat
-:: Hızlı (mikrofon/LLM/hoparlör gerekmez) — 36 test, ~0.05 s
+:: Hızlı (mikrofon/LLM/hoparlör gerekmez) — 41 test, ~0.05 s
 .venv\Scripts\python.exe -m unittest -v test_jarvis.py
 
 :: Sözdizimi

@@ -367,6 +367,45 @@ class WeatherTests(unittest.TestCase):
         self.assertIn("ag yok", messages[-1]["content"])
 
 
+class GpuTests(unittest.TestCase):
+    def test_nvidia_smi_ayristirma(self):
+        cikti = (
+            "0, NVIDIA GeForce RTX 3060, 12288 MiB\r\n"
+            "1, NVIDIA GeForce RTX 3060, 12288 MiB\r\n"
+        )
+        devices = jarvis.parse_nvidia_smi(cikti)
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(devices[0][0], 0)
+        self.assertEqual(devices[1][0], 1)
+        self.assertEqual(devices[0][2], 12288)
+        self.assertIn("RTX 3060", devices[0][1])
+
+    def test_nvidia_smi_bos_ve_bozuk_satirlar(self):
+        cikti = "\nindex, name, memory.total [MiB]\nbozuk satir\n2, GPU X, 8192 MiB\n"
+        devices = jarvis.parse_nvidia_smi(cikti)
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0][0], 2)
+        self.assertEqual(devices[0][2], 8192)
+        self.assertEqual(jarvis.parse_nvidia_smi(""), [])
+
+    def test_whisper_gpu_ayari(self):
+        self.assertEqual(jarvis.Settings(whisper_gpu="1").normalize().whisper_gpu, 1)
+        self.assertEqual(jarvis.Settings(whisper_gpu=-4).normalize().whisper_gpu, 0)
+        self.assertEqual(jarvis.load_settings(parse("--whisper-gpu", "1")).whisper_gpu, 1)
+        self.assertEqual(jarvis.Settings().normalize().whisper_gpu, 0)
+
+    def test_gecersiz_gpu_indeksi_sifira_duser(self):
+        transcriber = jarvis.Transcriber(jarvis.Settings(whisper_gpu=9).normalize())
+        self.assertEqual(transcriber._resolve_gpu_index(), 0)
+
+    def test_cihaz_etiketi(self):
+        transcriber = jarvis.Transcriber(jarvis.Settings().normalize())
+        transcriber._device, transcriber._device_index = "cuda", 1
+        self.assertEqual(transcriber.device_label, "cuda:1")
+        transcriber._device = "cpu"
+        self.assertEqual(transcriber.device_label, "cpu")
+
+
 class FakeSpeaker:
     """Assistant testlerinde ses cikarmayan speaker yerine gecen hafif nesne."""
 
