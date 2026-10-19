@@ -1,0 +1,35 @@
+{
+  "_aciklama": "Bu dosyayi config.json olarak kopyalayin; jarvis.py otomatik okur. CLI ve ortam degiskenleri bu dosyayi ezer.",
+
+  "base_url": "http://localhost:1234/v1",
+  "api_key": "lm-studio",
+  "model": "",
+  "temperature": 0.6,
+  "max_tokens": 1024,
+  "disable_thinking": true,
+  "history_turns": 8,
+
+  "language": "tr",
+  "whisper_model": "small",
+  "whisper_device": "auto",
+  "whisper_compute_type": "auto",
+
+  "input_device": null,
+  "sample_rate": 16000,
+  "frame_ms": 30,
+  "silence_ms": 900,
+  "max_seconds": 20,
+  "vad_threshold": 0,
+
+  "tts_engine": "edge",
+  "voice": "tr-TR-EmelNeural",
+  "rate": "+0%",
+  "pitch": "+0Hz",
+  "volume": "+0%",
+
+  "wake_word": "",
+
+  "weather_enabled": true,
+  "weather_location": "Kirklareli,TR",
+  "weather_timeout": 10
+}

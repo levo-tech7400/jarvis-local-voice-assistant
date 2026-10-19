@@ -1,0 +1,17 @@
+# Jarvis - tamamen yerel sesli asistan
+# Kurulum:  pip install -r requirements.txt
+# (Python 3.9 - 3.12 onerilir)
+
+# --- Konusma tanima (STT) ---
+faster-whisper>=1.0.3        # Whisper (CTranslate2) - model ilk calistirmada indirilir
+av>=13,<14                   # faster-whisper'in dosya cozucusu; 15+ ile 'metadata_errors' uyumsuz
+sounddevice>=0.4.6           # mikrofon (PortAudio dahil gelir)
+numpy>=1.24                  # ses dizileri / VAD
+
+# --- LLM istemcisi ---
+requests>=2.31               # LM Studio /v1 (OpenAI uyumlu) HTTP + SSE
+
+# --- Seslendirme (TTS) ---
+edge-tts>=6.1.9              # dogal Turkce sesler (internet gerektirir)
+pygame>=2.5.2                # uretilen mp3'u calar
+pyttsx3>=2.90                # OPSIYONEL: cevrimdisi yedek motor (Windows SAPI5)

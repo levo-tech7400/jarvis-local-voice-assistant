@@ -1,0 +1,14 @@
+# Jarvis - GPU (CUDA 12) destegi
+# Kurulum:  pip install -r requirements-gpu.txt
+#
+# ctranslate2 (faster-whisper'in motoru) cuBLAS ve cuDNN'i calisma zamaninda
+# arar. Bu iki paket DLL'leri venv icine kurar; jarvis.py bunlari otomatik
+# olarak PATH'e ekler (_prepare_cuda_dlls), ek ayar gerekmez.
+#
+# NVIDIA surucu >= 525 ve CUDA 12 uyumlu bir kart (compute >= 7.0) gerekir.
+# GPU calismazsa Jarvis sessizce CPU/int8'e duser.
+
+-r requirements.txt
+
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
