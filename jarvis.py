@@ -1018,7 +1018,6 @@ class WeatherService:
 
     def resolve(self, location: Optional[str] = None) -> Tuple[str, float, float]:
         """(etiket, enlem, boylam) dondurur; sonuclar oturum boyunca onbelleklenir."""
-        self._require_requests()
         raw = (location or "").strip() or self.settings.weather_location or "Kirklareli,TR"
         key = raw.lower()
         with self._lock:
@@ -1028,10 +1027,12 @@ class WeatherService:
 
         match = self.COORD_RE.match(raw)
         if match:
+            # "41.73,27.22" gibi koordinatlar icin ag gerekmez
             lat = float(match.group(1).replace(",", "."))
             lon = float(match.group(2).replace(",", "."))
             resolved = ("{:.4f}, {:.4f}".format(lat, lon), lat, lon)
         else:
+            self._require_requests()
             parts = [part.strip() for part in raw.split(",") if part.strip()]
             params: Dict[str, Any] = {
                 "name": parts[0],
